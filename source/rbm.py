@@ -443,7 +443,9 @@ class RBM(pgm.PGM):
             PTv=False, PTh=False, interpolate_z=True, degree_interpolate_z=5, zero_track_RBM=False, only_sampling=False,
             lr_decay=True, lr_final=None, decay_after=0.5, l1=0, l1b=0, l1c=0, l2=0, l2_fields=0, reg_delta=0, no_fields=False, weights=None, adapt_PT=False, AR_min=0.3, adapt_MC=False, tau_max=5, update_every=100,
             N_PT_max=20, N_MC_max=20, from_hidden=None, learning_rate_multiplier=1,
-            update_betas=None, record_acceptance=None, shuffle_data=True, epsilon=1e-6, verbose=1, vverbose=0, record=[], record_interval=100, data_test=None, weights_test=None, l1_custom=None, l1b_custom=None, M_AIS=10, n_betas_AIS=10000, decay_style='geometric'):
+            update_betas=None, record_acceptance=None, shuffle_data=True, epsilon=1e-6, verbose=1, vverbose=0, record=[], record_interval=100, data_test=None, weights_test=None, l1_custom=None, l1b_custom=None, M_AIS=10, n_betas_AIS=10000, decay_style='geometric',
+            callback=None # callback function, called after each minibatch fit
+            ):
 
         self.batch_size = batch_size
         self.optimizer = optimizer
@@ -841,6 +843,9 @@ class RBM(pgm.PGM):
                 else:
                     no_nans = self.minibatch_fit(
                         data[batch_slice], weights=weights[batch_slice], verbose=vverbose)
+                
+                if callback is not None:
+                    callback()
 
                 if ('TAU' in record) | self.adapt_MC:
                     if self.N_PT > 1:
