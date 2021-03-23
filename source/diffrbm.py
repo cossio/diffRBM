@@ -31,7 +31,7 @@ from float_precision import double_precision, curr_float, curr_int
 
 
 class DiffRBM:
-    def __init__(self, RBMback, RBMpost, update_back=True):
+    def __init__(self, RBMback, RBMpost, update_back=True, update_back_vlayer=False, update_back_hlayer=True):
         self.RBMback = RBMback
         self.RBMpost = RBMpost
         assert RBMback.visible == RBMpost.visible
@@ -41,37 +41,38 @@ class DiffRBM:
         assert RBMback.n_v <= RBMpost.n_v
         assert RBMback.n_h <= RBMpost.n_h
         assert RBMback.n_v < RBMpost.n_v or RBMback.n_h < RBMpost.n_h
-        self.n_v_ = min(RBMback.n_v, RBMpost.n_v)
-        self.n_h_ = min(RBMback.n_h, RBMpost.n_h)
+        self.n_v_ = RBMback.n_v
+        self.n_h_ = RBMback.n_h
         if update_back:
-            self.update_back_from_post(vlayer=True, hlayer=True)
+            self.update_back_from_post(vlayer=update_back_vlayer, hlayer=update_back_hlayer)
     
     # updates back RBM from post parameters
     def update_back_from_post(self, vlayer=False, hlayer=True):
-        self.RBMback.weights[:self.n_h_, :self.n_v_] = self.RBMpost.weights[:self.n_h_ :self.n_v_]
+        self.RBMback.weights[:] = self.RBMpost.weights[:self.n_h_, :self.n_v_]
         if vlayer:
             for key in self.RBMback.vlayer.list_params:
-                self.RBMback.vlayer.__dict__[key][:self.n_v_] = self.RBMpost.vlayer.__dict__[key][:self.n_v_]
+                self.RBMback.vlayer.__dict__[key][:] = self.RBMpost.vlayer.__dict__[key][:self.n_v_]
         if hlayer:
             for key in self.RBMback.hlayer.list_params:
-                self.RBMback.hlayer.__dict__[key][:self.n_h_] = self.RBMpost.hlayer.__dict__[key][:self.n_h_]
+                self.RBMback.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key][:self.n_h_]
     
     # updates post RBM from back parameters
     def update_post_from_back(self, vlayer=False, hlayer=True):
-        self.RBMpost.weights[:self.n_h_, :self.n_v_] = self.RBMback.weights[:self.n_h_, :self.n_v_]
+        self.RBMpost.weights[:self.n_h_, :self.n_v_] = self.RBMback.weights
         if vlayer:
             for key in self.RBMpost.vlayer.list_params:
-                self.RBMpost.vlayer.__dict__[key][:self.n_v_] = self.RBMback.vlayer.__dict__[key][:self.n_v_]
+                self.RBMpost.vlayer.__dict__[key][:self.n_v_] = self.RBMback.vlayer.__dict__[key]
         if hlayer:
             for key in self.RBMpost.hlayer.list_params:
-                self.RBMpost.hlayer.__dict__[key][:self.n_h_] = self.RBMback.hlayer.__dict__[key][:self.n_h_]
+                self.RBMpost.hlayer.__dict__[key][:self.n_h_] = self.RBMback.hlayer.__dict__[key]
 
     # updates post RBM from top parameters in 'topRBM'
     def update_post_from_top(self, topRBM, vlayer=False, hlayer=True):
         self.RBMpost.weights[self.n_h_:, self.n_v_:] = topRBM.weights
         if vlayer:
             for key in self.RBMpost.vlayer.list_params:
-                self.RBMpost.vlayer.__dict__[key][self.n_v_:] = topRBM.vlayer.__dict__[key] + self.RBMback.vlayer.__dict__[key]
+                self.RBMpost.vlayer.__dict__[key][self.n_v_:] = self.RBMback.vlayer.__dict__[key] + topRBM.vlayer.__dict__[key][self.n_v_:]
+                self.RBMpost.vlayer.__dict__[key][:self.n_v_] = topRBM.vlayer.__dict__[key][:self.n_v_]
         if hlayer:
             for key in self.RBMpost.hlayer.list_params:
                 self.RBMpost.hlayer.__dict__[key][self.n_h_:] = topRBM.hlayer.__dict__[key]
@@ -81,21 +82,21 @@ class DiffRBM:
         topRBM.weights[:] = self.RBMpost.weights[self.n_h_:, self.n_v_:]
         if vlayer:
             for key in self.RBMpost.vlayer.list_params:
-                topRBM.vlayer.__dict__[key][self.n_v_:] = self.RBMpost.vlayer.__dict__[key] - self.RBMback.vlayer.__dict__[key]
+                topRBM.vlayer.__dict__[key][:self.n_v_] = self.RBMpost.vlayer.__dict__[key][:self.n_v_] - self.RBMback.vlayer.__dict__[key]
+                topRBM.vlayer.__dict__[key][self.n_v_:] = self.RBMpost.vlayer.__dict__[key][self.n_v_:]
         if hlayer:
             for key in self.RBMpost.hlayer.list_params:
-                topRBM.hlayer.__dict__[key][self.n_h_:] = self.RBMpost.hlayer.__dict__[key]
+                topRBM.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key][self.n_h_:]
 
     # returns the top RBM
     def top_rbm(self):
-        RBMtop = rbm.RBM(n_v=self.RBMpost.n_v - self.RBMback.n_v, 
-                         n_h=self.RBMpost.n_h - self.RBMback.n_h,
+        RBMtop = rbm.RBM(n_v=self.RBMpost.n_v, n_h=self.RBMpost.n_h - self.n_h_,
                          n_cv=self.RBMpost.n_cv, n_ch=self.RBMpost.n_ch,
-                         visible=self.RBMpost.visible,
-                         hidden=self.RBMpost.hidden)
-        RBMtop.weights[:] = self.RBMpost.weights[self.n_h_:, self.n_v_:]    
+                         visible=self.RBMpost.visible, hidden=self.RBMpost.hidden)
+        RBMtop.weights[:] = self.RBMpost.weights[self.n_h_:, :]
         for key in self.RBMpost.vlayer.list_params:
-            RBMtop.vlayer.__dict__[key][:] = self.RBMpost.vlayer.__dict__[key] - self.RBMback.vlayer.__dict__[key]
+            RBMtop.vlayer.__dict__[key][:self.n_v_] = self.RBMpost.vlayer.__dict__[key][:self.n_v_] - self.RBMback.vlayer.__dict__[key]
+            RBMtop.vlayer.__dict__[key][self.n_v_:] = self.RBMpost.vlayer.__dict__[key][self.n_v_:]
         for key in self.RBMpost.hlayer.list_params:
             RBMtop.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key][self.n_h_:]
         return RBMtop
@@ -357,12 +358,12 @@ class DiffRBM:
                 print("[%s] Iteration %d, time = %.2fs, pseudo-likelihood post = %.2f, pseudo-likelihood back: %.2f" % (type(self).__name__, epoch, end - begin, lik_post, lik_back))
 
 # constructs a diff RBM from parameters
-def construct_diff_rbm(n_v_post, n_h_post, n_v_back=None, n_h_back=None, n_cv=1, n_ch=1, visible='Bernoulli', hidden='Bernoulli', update_back=True):
+def construct_diff_rbm(n_v_post, n_h_post, n_v_back=None, n_h_back=None, n_cv=1, n_ch=1, visible='Bernoulli', hidden='Bernoulli'):
     if n_v_back is None:
         n_v_back = n_v_post
     if n_h_back is None:
         n_h_back = n_h_post
     RBMback = rbm.RBM(n_v=n_v_back, n_h=n_h_back, visible=visible, hidden=hidden, n_cv=n_cv, n_ch=n_ch)
     RBMpost = rbm.RBM(n_v=n_v_post, n_h=n_h_post, visible=visible, hidden=hidden, n_cv=n_cv, n_ch=n_ch)
-    RBMdiff = DiffRBM(RBMback, RBMpost, update_back=update_back)
+    RBMdiff = DiffRBM(RBMback, RBMpost, update_back=True, update_back_vlayer=True, update_back_hlayer=True)
     return RBMdiff
