@@ -71,8 +71,7 @@ class DiffRBM:
         self.RBMpost.weights[self.n_h_:, self.n_v_:] = topRBM.weights
         if vlayer:
             for key in self.RBMpost.vlayer.list_params:
-                self.RBMpost.vlayer.__dict__[key][self.n_v_:] = self.RBMback.vlayer.__dict__[key] + topRBM.vlayer.__dict__[key][self.n_v_:]
-                self.RBMpost.vlayer.__dict__[key][:self.n_v_] = topRBM.vlayer.__dict__[key][:self.n_v_]
+                self.RBMpost.vlayer.__dict__[key][:] = topRBM.vlayer.__dict__[key]
         if hlayer:
             for key in self.RBMpost.hlayer.list_params:
                 self.RBMpost.hlayer.__dict__[key][self.n_h_:] = topRBM.hlayer.__dict__[key]
@@ -82,11 +81,10 @@ class DiffRBM:
         topRBM.weights[:] = self.RBMpost.weights[self.n_h_:, self.n_v_:]
         if vlayer:
             for key in self.RBMpost.vlayer.list_params:
-                topRBM.vlayer.__dict__[key][:self.n_v_] = self.RBMpost.vlayer.__dict__[key][:self.n_v_] - self.RBMback.vlayer.__dict__[key]
-                topRBM.vlayer.__dict__[key][self.n_v_:] = self.RBMpost.vlayer.__dict__[key][self.n_v_:]
+                topRBM.vlayer.__dict__[key][:] = self.RBMpost.vlayer.__dict__[key]
         if hlayer:
             for key in self.RBMpost.hlayer.list_params:
-                topRBM.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key][self.n_h_:]
+                topRBM.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key]
 
     # returns the top RBM
     def top_rbm(self):
@@ -95,8 +93,7 @@ class DiffRBM:
                          visible=self.RBMpost.visible, hidden=self.RBMpost.hidden)
         RBMtop.weights[:] = self.RBMpost.weights[self.n_h_:, :]
         for key in self.RBMpost.vlayer.list_params:
-            RBMtop.vlayer.__dict__[key][:self.n_v_] = self.RBMpost.vlayer.__dict__[key][:self.n_v_] - self.RBMback.vlayer.__dict__[key]
-            RBMtop.vlayer.__dict__[key][self.n_v_:] = self.RBMpost.vlayer.__dict__[key][self.n_v_:]
+            RBMtop.vlayer.__dict__[key][:] = self.RBMpost.vlayer.__dict__[key]
         for key in self.RBMpost.hlayer.list_params:
             RBMtop.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key][self.n_h_:]
         return RBMtop
