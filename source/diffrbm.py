@@ -213,6 +213,7 @@ class DiffRBM:
                 self.RBMback.vlayer.init_params_from_data(self.RBMback.moments_data, eps=epsilon, value='moments')
             self.RBMpost.hlayer.init_params_from_data(None)
             self.RBMback.hlayer.init_params_from_data(None)
+            self.update_back_from_post(vlayer=False, hlayer=True)
 
         if nchains is None:
             nchains = batch_size
