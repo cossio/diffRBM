@@ -52,37 +52,35 @@ class DiffRBM:
 
     # updates post RBM from top parameters in 'topRBM'
     def update_post_from_top(self, topRBM, vlayer=False, hlayer=True):
-        self.RBMpost.weights[self.n_h_:, self.n_v_:] = topRBM.weights
+        self.RBMpost.weights[self.n_h_:] = topRBM.weights
         if vlayer:
             for key in self.RBMpost.vlayer.list_params:
-                self.RBMpost.vlayer.__dict__[key][:] = topRBM.vlayer.__dict__[key]
+                self.RBMpost.vlayer.__dict__[key][:self.n_v_] = topRBM.vlayer.__dict__[key][:self.n_v_] + self.RBMback.vlayer.__dict__[key]
+                self.RBMpost.vlayer.__dict__[key][self.n_v_:] = topRBM.vlayer.__dict__[key][self.n_v_:]
         if hlayer:
             for key in self.RBMpost.hlayer.list_params:
                 self.RBMpost.hlayer.__dict__[key][self.n_h_:] = topRBM.hlayer.__dict__[key]
     
     # updates topRBM with parmeters from 'top' part of the post-RBM
-    def update_top_from_post(self, topRBM, vlayer=False, hlayer=True):
-        topRBM.weights[:] = self.RBMpost.weights[self.n_h_:, self.n_v_:]
+    def update_top_from_post(self, topRBM, vlayer=True, hlayer=True):
+        topRBM.weights[:] = self.RBMpost.weights[self.n_h_:]
         if vlayer:
             for key in self.RBMpost.vlayer.list_params:
-                topRBM.vlayer.__dict__[key][:] = self.RBMpost.vlayer.__dict__[key]
+                topRBM.vlayer.__dict__[key][:self.n_v_] = self.RBMpost.vlayer.__dict__[key][:self.n_v_] - self.RBMback.vlayer.__dict__[key]
+                topRBM.vlayer.__dict__[key][self.n_v_:] = self.RBMpost.vlayer.__dict__[key][self.n_v_:]
         if hlayer:
             for key in self.RBMpost.hlayer.list_params:
-                topRBM.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key]
+                topRBM.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key][self.n_h_:]
 
     # returns the top RBM
     def top_rbm(self):
         RBMtop = rbm.RBM(n_v=self.RBMpost.n_v, n_h=self.RBMpost.n_h - self.n_h_,
                          n_cv=self.RBMpost.n_cv, n_ch=self.RBMpost.n_ch,
                          visible=self.RBMpost.visible, hidden=self.RBMpost.hidden)
-        RBMtop.weights[:] = self.RBMpost.weights[self.n_h_:, :]
-        for key in self.RBMpost.vlayer.list_params:
-            RBMtop.vlayer.__dict__[key][:] = self.RBMpost.vlayer.__dict__[key]
-        for key in self.RBMpost.hlayer.list_params:
-            RBMtop.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key][self.n_h_:]
+        self.update_top_from_post(RBMtop, vlayer=True, hlayer=True)
         return RBMtop
             
-    # fits top RBM, with background RBM frozen
+    # fits top RBM from post data, with background RBM frozen
     def fit_top(self, data_post, callback=None, **kwargs):
         def cb():
             self.update_post_from_back(vlayer=False, hlayer=True)
@@ -90,10 +88,26 @@ class DiffRBM:
                 callback()
         self.RBMpost.fit(data_post, callback=cb, **kwargs)
     
-    # fits background RBM, with top RBM frozen
+    # fits background RBM from back data (doesn't change top RBM)
     def fit_back(self, data_back, **kwargs):
         self.RBMback.fit(data_back, **kwargs)
         self.update_post_from_back(vlayer=False, hlayer=True)
+    
+    # fits post RBM from post data (normal fit), and updates backRBM
+    def fit_post(self, data_post, **kwargs):
+        self.RBMpost.fit(data_post, **kwargs)
+        self.update_back_from_post(vlayer=False, hlayer=True)
+    
+    # fits background RBM from post data, with top RBM frozen
+    def fit_back_from_post(self, data_post, callback=None, **kwargs):
+        topRBM = self.top_rbm()
+        def cb():
+            self.update_post_from_top(topRBM, vlayer=False, hlayer=True)
+            if callback is not None:
+                callback()
+        self.RBMpost.fit(data_post, callback=cb, **kwargs)
+        self.update_back_from_post(vlayer=True, hlayer=True)
+        self.update_post_from_top(topRBM, vlayer=True, hlayer=True)
 
     # fits top and back RBMs simultaneously
     def fit_diff(self, data_post, data_back, batch_size=100, learning_rate=None, extra_params=None, init='independent', optimizer='ADAM', batch_norm=True, CD=False, N_MC=1, nchains=None, n_iter=10,
@@ -153,6 +167,7 @@ class DiffRBM:
         n_batches = int(np.ceil(float(n_samples_max) / batch_size))
         batch_slices = list(gen_even_slices(n_batches * batch_size, n_batches, n_samples_max))
 
+        # learning rate should be smaller for the smaller dataset
         if n_samples_back > n_samples_post:
             lr_back_factor = 1
             lr_post_factor = n_samples_post / n_samples_back
@@ -354,3 +369,4 @@ def construct_diff_rbm(n_v_post, n_h_post, n_v_back=None, n_h_back=None, n_cv=1,
     RBMpost = rbm.RBM(n_v=n_v_post, n_h=n_h_post, visible=visible, hidden=hidden, n_cv=n_cv, n_ch=n_ch)
     RBMdiff = DiffRBM(RBMback, RBMpost, update_back=True, update_back_vlayer=True, update_back_hlayer=True)
     return RBMdiff
+# %%
