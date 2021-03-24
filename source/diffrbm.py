@@ -1,19 +1,3 @@
-"""
- Copyright 2020 - by Jerome Tubiana (jertubiana@gmail.com)
-     All rights reserved
-
-     Permission is granted for anyone to copy, use, or modify this
-     software for any uncommercial purposes, provided this copyright
-     notice is retained, and note is made of any changes that have
-     been made. This software is distributed without any warranty,
-     express or implied. In no event shall the author or contributors be
-     liable for any damage arising out of the use of this software.
-
-     The publication of research using this software, modified or not, must include
-     appropriate citations to:
-"""
-
-
 import numpy as np
 import layer
 import pgm
@@ -153,6 +137,29 @@ class DiffRBM:
             weights_post = np.ones(len(data_post))
         if weights_back is None:
             weights_back = np.ones(len(data_back))
+        
+        data_post = np.asarray(data_post, dtype=self.RBMpost.vlayer.type, order="c")
+        data_back = np.asarray(data_back, dtype=self.RBMback.vlayer.type, order="c")
+        weights_post = np.asarray(weights_post, dtype=curr_float)
+        weights_back = np.asarray(weights_back, dtype=curr_float)
+        if batch_norm:
+            self.RBMpost.mu_data = utilities.average(data_post, c=self.RBMpost.n_cv, weights=weights_post)
+            self.RBMback.mu_data = utilities.average(data_back, c=self.RBMback.n_cv, weights=weights_back)
+        self.RBMpost.moments_data = self.RBMpost.vlayer.get_moments(data_post, value='data', weights=weights_post, beta=1)
+        self.RBMback.moments_data = self.RBMback.vlayer.get_moments(data_back, value='data', weights=weights_back, beta=1)
+
+        n_samples_back = data_back.shape[0]
+        n_samples_post = data_post.shape[0]
+        n_samples_max = max(n_samples_back, n_samples_post)
+        n_batches = int(np.ceil(float(n_samples_max) / batch_size))
+        batch_slices = list(gen_even_slices(n_batches * batch_size, n_batches, n_samples_max))
+
+        if n_samples_back > n_samples_post:
+            lr_back_factor = 1
+            lr_post_factor = n_samples_post / n_samples_back
+        else:
+            lr_back_factor = n_samples_back / n_samples_post
+            lr_post_factor = 1
 
         if n_iter <= 1:
             lr_decay = False
@@ -171,43 +178,29 @@ class DiffRBM:
             else:
                 print('Need to specify learning rate for optimizer.')
 
-        self.RBMpost.learning_rate_init = self.RBMback.learning_rate_init = copy.copy(learning_rate)
-        self.RBMpost.learning_rate = self.RBMback.learning_rate = learning_rate
+        self.RBMback.learning_rate_init = learning_rate * lr_back_factor
+        self.RBMpost.learning_rate_init = learning_rate * lr_post_factor
+        self.RBMback.learning_rate = learning_rate * lr_back_factor
+        self.RBMpost.learning_rate = learning_rate * lr_post_factor
         self.RBMpost.lr_decay = self.RBMback.lr_decay = lr_decay
         if lr_decay:
             self.RBMpost.decay_after = self.RBMback.decay_after = decay_after
             self.RBMpost.start_decay = self.RBMback.start_decay = start_decay = int(n_iter * decay_after)
             if lr_final is None:
                 lr_final = 1e-2 * learning_rate
-            self.RBMpost.lr_final = self.RBMback.lr_final = lr_final
+            self.RBMback.lr_final = lr_final * lr_back_factor
+            self.RBMpost.lr_final = lr_final * lr_post_factor
             decay_gamma = (float(lr_final) / float(learning_rate))**(1 / float(n_iter * (1 - decay_after)))
         else:
             decay_gamma = 1
         self.RBMpost.decay_gamma = self.RBMback.decay_gamma = decay_gamma
 
-        data_post = np.asarray(data_post, dtype=self.RBMpost.vlayer.type, order="c")
-        data_back = np.asarray(data_back, dtype=self.RBMback.vlayer.type, order="c")
-        weights_post = np.asarray(weights_post, dtype=curr_float)
-        weights_back = np.asarray(weights_back, dtype=curr_float)
-        if batch_norm:
-            self.RBMpost.mu_data = utilities.average(data_post, c=self.RBMpost.n_cv, weights=weights_post)
-            self.RBMback.mu_data = utilities.average(data_back, c=self.RBMback.n_cv, weights=weights_back)
-        self.RBMpost.moments_data = self.RBMpost.vlayer.get_moments(data_post, value='data', weights=weights_post, beta=1)
-        self.RBMback.moments_data = self.RBMback.vlayer.get_moments(data_back, value='data', weights=weights_back, beta=1)
-
-        n_samples_post = data_post.shape[0]
-        n_samples_back = data_back.shape[0]
-        n_batches_post = int(np.ceil(float(n_samples_post) / batch_size))
-        n_batches_back = int(np.ceil(float(n_samples_back) / batch_size))
-        batch_slices_post = list(gen_even_slices(n_batches_post * batch_size, n_batches_post, n_samples_post))
-        batch_slices_back = list(gen_even_slices(n_batches_back * batch_size, n_batches_back, n_samples_back))
-
         if init != 'previous':
-            self.RBMpost.init_weights(np.sqrt(0.1 / self.RBMpost.n_v))
             self.RBMback.init_weights(np.sqrt(0.1 / self.RBMback.n_v))
+            self.RBMpost.init_weights(np.sqrt(0.1 / self.RBMpost.n_v))
             if init == 'independent':
-                self.RBMpost.vlayer.init_params_from_data(self.RBMpost.moments_data, eps=epsilon, value='moments')
                 self.RBMback.vlayer.init_params_from_data(self.RBMback.moments_data, eps=epsilon, value='moments')
+                self.RBMpost.vlayer.init_params_from_data(self.RBMpost.moments_data, eps=epsilon, value='moments')
             self.RBMpost.hlayer.init_params_from_data(None)
             self.RBMback.hlayer.init_params_from_data(None)
             self.update_back_from_post(vlayer=False, hlayer=True)
@@ -291,9 +284,13 @@ class DiffRBM:
         self.RBMpost.count_updates = self.RBMback.count_updates = 0
 
         if verbose:
-            lik_post = (self.RBMpost.pseudo_likelihood(data_post) * weights_post).sum() / weights_post.sum()
             lik_back = (self.RBMback.pseudo_likelihood(data_back) * weights_back).sum() / weights_back.sum()
-            print('Iteration number 0, pseudo-likelihood post: %.2f' % lik_post, 'pseudo-likelihood back: %.2f' % lik_back)
+            lik_post = (self.RBMpost.pseudo_likelihood(data_post) * weights_post).sum() / weights_post.sum()
+            print('Iteration number 0, pseudo-likelihood back: %.2f' % lik_back, 'pseudo-likelihood post: %.2f' % lik_post)
+
+        num_samples_max = max(n_samples_back, n_samples_post)
+        enlarge_back_idx = self.RBMback.random_state.choice(range(n_samples_back), size=(n_iter, num_samples_max - n_samples_back), p=weights_back / weights_back.sum())
+        enlarge_post_idx = self.RBMpost.random_state.choice(range(n_samples_post), size=(n_iter, num_samples_max - n_samples_post), p=weights_post / weights_post.sum())
 
         for epoch in range(1, n_iter + 1):
             if verbose:
@@ -301,59 +298,52 @@ class DiffRBM:
             if lr_decay:
                 if (epoch > start_decay):
                     learning_rate *= decay_gamma
-                    self.RBMpost.learning_rate = self.RBMback.learning_rate = learning_rate
+                    self.RBMback.learning_rate = learning_rate * lr_back_factor
+                    self.RBMpost.learning_rate = learning_rate * lr_post_factor
 
             if (verbose | vverbose):
                 print('Starting epoch %s' % (epoch))
             
-            # shuffle post dataset
-            permute_post = np.arange(data_post.shape[0])
-            self.RBMpost.random_state.shuffle(permute_post)
-            weights_post = weights_post[permute_post]
-            data_post = data_post[permute_post]
-
-            # shuffle background dataset
-            permute_back = np.arange(data_back.shape[0])
+            # enlarge datasets to common number of samples and shuffle
+            permute_back = np.arange(num_samples_max)
+            permute_post = np.arange(num_samples_max)
             self.RBMback.random_state.shuffle(permute_back)
-            weights_back = weights_back[permute_back]
-            data_back = data_back[permute_back]
+            self.RBMpost.random_state.shuffle(permute_post)
+            enlarge_back_idx_ = np.concatenate([range(n_samples_back), enlarge_back_idx[epoch - 1]])
+            enlarge_post_idx_ = np.concatenate([range(n_samples_post), enlarge_post_idx[epoch - 1]])
+            enlarge_back_idx_ = enlarge_back_idx_[permute_back]
+            enlarge_post_idx_ = enlarge_post_idx_[permute_post]
+            data_back_ = data_back[enlarge_back_idx_]
+            data_post_ = data_post[enlarge_post_idx_]
+            weights_back_ = weights_back[enlarge_back_idx_]
+            weights_post_ = weights_post[enlarge_post_idx_]
+            assert data_back_.shape[0] == data_post_.shape[0] == num_samples_max
+            assert weights_back_.shape[0] == weights_post_.shape[0] == num_samples_max
 
-            # join all batch slices (back + post) and shuffle them
-            all_slices = batch_slices_post + batch_slices_back
-            all_flags = ['post'] * len(batch_slices_post) + ['back'] * len(batch_slices_back)
-            permute = np.arange(len(all_slices))
-            self.RBMpost.random_state.shuffle(permute)
-            all_slices = [all_slices[i] for i in permute]
-            all_flags = [all_flags[i] for i in permute]
-            # flag == 'back' for minibatch from back-dataset
-            # flag == 'post' for minibatch from post-dataset
-
-            for (idx, flag) in zip(all_slices, all_flags):
-                if flag == 'back':
-                    no_nans = self.RBMback.minibatch_fit(data_back[idx], weights=weights_back[idx], verbose=vverbose)
-                    self.update_post_from_back(vlayer=False, hlayer=True)
-                elif flag == 'post':
-                    no_nans = self.RBMpost.minibatch_fit(data_post[idx], weights=weights_post[idx], verbose=vverbose)
-                    self.update_back_from_post(vlayer=False, hlayer=True)
-                else:
-                    print('invalid flag')
-                                    
+            for batch_slice in batch_slices:
+                # update back
+                no_nans_back = self.RBMback.minibatch_fit(data_back_[batch_slice], weights=weights_back_[batch_slice], verbose=vverbose)
+                self.update_post_from_back(vlayer=False, hlayer=True)
+                # update post
+                no_nans_post = self.RBMpost.minibatch_fit(data_post_[batch_slice], weights=weights_post_[batch_slice], verbose=vverbose)
+                self.update_back_from_post(vlayer=False, hlayer=True)
+                
                 if callback is not None:
                     callback()
-                if not no_nans:
+                if no_nans_back and no_nans_post:
+                    done = False
+                else:
                     done = True
                     break
-                else:
-                    done = False
-
+                
             if done:
                 break
 
             if verbose:
                 end = time.time()
-                lik_post = (self.RBMpost.pseudo_likelihood(data_post) * weights_post).sum() / weights_post.sum()
                 lik_back = (self.RBMback.pseudo_likelihood(data_back) * weights_back).sum() / weights_back.sum()
-                print("[%s] Iteration %d, time = %.2fs, pseudo-likelihood post = %.2f, pseudo-likelihood back: %.2f" % (type(self).__name__, epoch, end - begin, lik_post, lik_back))
+                lik_post = (self.RBMpost.pseudo_likelihood(data_post) * weights_post).sum() / weights_post.sum()
+                print("[%s] Iteration %d, time = %.2fs, pseudo-likelihood back = %.2f, pseudo-likelihood post: %.2f" % (type(self).__name__, epoch, end - begin, lik_back, lik_post))
 
 # constructs a diff RBM from parameters
 def construct_diff_rbm(n_v_post, n_h_post, n_v_back=None, n_h_back=None, n_cv=1, n_ch=1, visible='Bernoulli', hidden='Bernoulli'):
