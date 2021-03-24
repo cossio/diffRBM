@@ -142,9 +142,8 @@ class DiffRBM:
         data_back = np.asarray(data_back, dtype=self.RBMback.vlayer.type, order="c")
         weights_post = np.asarray(weights_post, dtype=curr_float)
         weights_back = np.asarray(weights_back, dtype=curr_float)
-        if batch_norm:
-            self.RBMpost.mu_data = utilities.average(data_post, c=self.RBMpost.n_cv, weights=weights_post)
-            self.RBMback.mu_data = utilities.average(data_back, c=self.RBMback.n_cv, weights=weights_back)
+        self.RBMpost.mu_data = utilities.average(data_post, c=self.RBMpost.n_cv, weights=weights_post)
+        self.RBMback.mu_data = utilities.average(data_back, c=self.RBMback.n_cv, weights=weights_back)
         self.RBMpost.moments_data = self.RBMpost.vlayer.get_moments(data_post, value='data', weights=weights_post, beta=1)
         self.RBMback.moments_data = self.RBMback.vlayer.get_moments(data_back, value='data', weights=weights_back, beta=1)
 
