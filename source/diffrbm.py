@@ -15,7 +15,7 @@ from float_precision import double_precision, curr_float, curr_int
 
 
 class DiffRBM:
-    def __init__(self, RBMback, RBMpost, update_back=True, update_back_vlayer=False, update_back_hlayer=True):
+    def __init__(self, RBMback, RBMpost, update_back=False, update_back_vlayer=False, update_back_hlayer=False):
         self.RBMback = RBMback
         self.RBMpost = RBMpost
         assert RBMback.visible == RBMpost.visible
@@ -30,6 +30,20 @@ class DiffRBM:
         if update_back:
             self.update_back_from_post(vlayer=update_back_vlayer, hlayer=update_back_hlayer)
     
+    # returns true if back and post RBMs parameters are in sync
+    def insync(self, vlayer=False, hlayer=True):
+        weights_insync = (self.RBMback.weights[:] == self.RBMpost.weights[:self.n_h_, :self.n_v_]).all()
+        vlayer_insync = hlayer_insync = True
+        if vlayer:
+            for key in self.RBMback.vlayer.list_params:
+                c = (self.RBMback.vlayer.__dict__[key][:] == self.RBMpost.vlayer.__dict__[key][:self.n_v_]).all()
+                vlayer_insync = c and vlayer_insync
+        if hlayer:
+            for key in self.RBMback.hlayer.list_params:
+                c = (self.RBMback.hlayer.__dict__[key][:] == self.RBMpost.hlayer.__dict__[key][:self.n_h_]).all()
+                hlayer_insync = c and hlayer_insync
+        return weights_insync and vlayer_insync and hlayer_insync
+
     # updates back RBM from post parameters
     def update_back_from_post(self, vlayer=False, hlayer=True):
         self.RBMback.weights[:] = self.RBMpost.weights[:self.n_h_, :self.n_v_]
