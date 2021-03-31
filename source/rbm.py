@@ -444,7 +444,8 @@ class RBM(pgm.PGM):
             lr_decay=True, lr_final=None, decay_after=0.5, l1=0, l1b=0, l1c=0, l2=0, l2_fields=0, reg_delta=0, no_fields=False, weights=None, adapt_PT=False, AR_min=0.3, adapt_MC=False, tau_max=5, update_every=100,
             N_PT_max=20, N_MC_max=20, from_hidden=None, learning_rate_multiplier=1,
             update_betas=None, record_acceptance=None, shuffle_data=True, epsilon=1e-6, verbose=1, vverbose=0, record=[], record_interval=100, data_test=None, weights_test=None, l1_custom=None, l1b_custom=None, M_AIS=10, n_betas_AIS=10000, decay_style='geometric',
-            callback=None # callback function, called after each minibatch fit
+            callback=None, # a function called after each minibatch fit
+            modify_gradients_callback=None # called during each minibatch fit, to allow modification of gradients
             ):
 
         self.batch_size = batch_size
@@ -839,10 +840,10 @@ class RBM(pgm.PGM):
             for batch_slice in batch_slices:
                 if weights is None:
                     no_nans = self.minibatch_fit(
-                        data[batch_slice], weights=None, verbose=vverbose)
+                        data[batch_slice], weights=None, verbose=vverbose, modify_gradients_callback=modify_gradients_callback)
                 else:
                     no_nans = self.minibatch_fit(
-                        data[batch_slice], weights=weights[batch_slice], verbose=vverbose)
+                        data[batch_slice], weights=weights[batch_slice], verbose=vverbose, modify_gradients_callback=modify_gradients_callback)
                 
                 if callback is not None:
                     callback()
@@ -1031,7 +1032,7 @@ class RBM(pgm.PGM):
                 result[key] = np.array(item)
         return result
 
-    def minibatch_fit(self, V_pos, weights=None, verbose=True):
+    def minibatch_fit(self, V_pos, weights=None, verbose=True, modify_gradients_callback=None):
         self.count_updates += 1
         if self.CD:  # Contrastive divergence: initialize the Markov chain at the data point.
             self.fantasy_v[:V_pos.shape[0]] = V_pos # Copy the value, not the pointer. DO NOT USE self.fantasy_v = V_pos
@@ -1180,6 +1181,11 @@ class RBM(pgm.PGM):
             H_neg = self.hlayer.mean_from_inputs(I_neg)
             self.gradient['weights'] = pgm.couplings_gradients(self.weights, H_pos, H_neg, V_pos, V_neg, self.n_ch, self.n_cv, mean1=True, l1=self.l1,
                                                                l1b=self.l1b, l1c=self.l1c, l2=self.l2, weights=weights, weights_neg=weights_neg, l1_custom=self.l1_custom, l1b_custom=self.l1b_custom)
+       
+        # this callback allows the user to modify gradients (via the RBM.gradients dictionary)
+        # before they are given to the optimizer
+        if modify_gradients_callback is not None:
+            modify_gradients_callback()
 
         if self.interpolate & (self.N_PT > 2):
             self.gradient['vlayer'] = self.vlayer.internal_gradients_interpolation(
