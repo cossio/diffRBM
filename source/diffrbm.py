@@ -309,16 +309,16 @@ class DiffRBM:
         weights_post /= weights_post.mean()
         weights_back /= weights_back.mean()
         
-        self.RBMpost.count_updates = self.RBMback.count_updates = 0
+        self.count_updates = self.RBMpost.count_updates = self.RBMback.count_updates = 0
 
         if verbose:
             lik_back = (self.RBMback.pseudo_likelihood(data_back) * weights_back).sum() / weights_back.sum()
             lik_post = (self.RBMpost.pseudo_likelihood(data_post) * weights_post).sum() / weights_post.sum()
             print('Iteration number 0, pseudo-likelihood back: %.2f' % lik_back, 'pseudo-likelihood post: %.2f' % lik_post)
 
-        num_samples_max = max(n_samples_back, n_samples_post)
-        enlarge_back_idx = self.RBMback.random_state.choice(range(n_samples_back), size=(n_iter, num_samples_max - n_samples_back), p=weights_back / weights_back.sum())
-        enlarge_post_idx = self.RBMpost.random_state.choice(range(n_samples_post), size=(n_iter, num_samples_max - n_samples_post), p=weights_post / weights_post.sum())
+        n_samples_max = max(n_samples_back, n_samples_post)
+        enlarge_back_idx = self.RBMback.random_state.choice(range(n_samples_back), size=(n_iter, n_samples_max - n_samples_back), p=weights_back / weights_back.sum())
+        enlarge_post_idx = self.RBMpost.random_state.choice(range(n_samples_post), size=(n_iter, n_samples_max - n_samples_post), p=weights_post / weights_post.sum())
 
         for epoch in range(1, n_iter + 1):
             if verbose:
@@ -333,8 +333,8 @@ class DiffRBM:
                 print('Starting epoch %s' % (epoch))
             
             # enlarge datasets to common number of samples and shuffle
-            permute_back = np.arange(num_samples_max)
-            permute_post = np.arange(num_samples_max)
+            permute_back = np.arange(n_samples_max)
+            permute_post = np.arange(n_samples_max)
             self.RBMback.random_state.shuffle(permute_back)
             self.RBMpost.random_state.shuffle(permute_post)
             enlarge_back_idx_ = np.concatenate([range(n_samples_back), enlarge_back_idx[epoch - 1]])
@@ -345,8 +345,8 @@ class DiffRBM:
             data_post_ = data_post[enlarge_post_idx_]
             weights_back_ = weights_back[enlarge_back_idx_]
             weights_post_ = weights_post[enlarge_post_idx_]
-            assert data_back_.shape[0] == data_post_.shape[0] == num_samples_max
-            assert weights_back_.shape[0] == weights_post_.shape[0] == num_samples_max
+            assert data_back_.shape[0] == weights_back_.shape[0] == n_samples_max
+            assert data_post_.shape[0] == weights_post_.shape[0] == n_samples_max
 
             for batch_slice in batch_slices:
                 # update back
@@ -372,6 +372,287 @@ class DiffRBM:
                 lik_back = (self.RBMback.pseudo_likelihood(data_back) * weights_back).sum() / weights_back.sum()
                 lik_post = (self.RBMpost.pseudo_likelihood(data_post) * weights_post).sum() / weights_post.sum()
                 print("[%s] Iteration %d, time = %.2fs, pseudo-likelihood back = %.2f, pseudo-likelihood post: %.2f" % (type(self).__name__, epoch, end - begin, lik_back, lik_post))
+
+    def minibatch_fit_diff(self, V_pos_back, V_pos_post, weights=None, verbose=True, modify_gradients_callback=None):
+        self.count_updates += 1
+        assert self.N_PT == 0
+        assert self.N_MC > 0
+        assert not self.from_hidden
+        if self.CD:  # Contrastive divergence: initialize the Markov chain at the data point.
+            # Copy the value, not the pointer. DO NOT USE self.fantasy_v = V_pos
+            self.RBMback.fantasy_v[:V_pos_back.shape[0]] = V_pos_back
+            self.RBMpost.fantasy_v[:V_pos_post.shape[0]] = V_pos_post
+        # Else: use previous value.
+        for _ in range(self.N_MC):
+            (self.RBMback.fantasy_v, self.RBMback.fantasy_h) = self.RBMback.markov_step((self.RBMback.fantasy_v, self.RBMback.fantasy_h))
+            (self.RBMpost.fantasy_v, self.RBMpost.fantasy_h) = self.RBMpost.markov_step((self.RBMpost.fantasy_v, self.RBMpost.fantasy_h))
+
+        for attr in ['fantasy_v', 'fantasy_h', 'fantasy_z', 'fantasy_E']:
+            if hasattr(self.RBMback, attr):
+                if np.isnan(getattr(self.RBMback, attr)).max():
+                    print('NAN in RBMback %s (before gradient computation). Breaking' % attr)
+                    return False
+            if hasattr(self.RBMpost, attr):
+                if np.isnan(getattr(self.RBMpost, attr)).max():
+                    print('NAN in RBMpost %s (before gradient computation). Breaking' % attr)
+                    return False
+
+        if self.CD:
+            weights_neg = weights
+        else:
+            weights_neg = None
+    
+        V_neg_back = self.RBMback.fantasy_v
+        V_neg_post = self.RBMpost.fantasy_v
+        I_neg_back = self.RBMback.vlayer.compute_output(V_neg_back, self.RBMback.weights)
+        I_neg_post = self.RBMpost.vlayer.compute_output(V_neg_post, self.RBMpost.weights)
+        I_pos_back = self.RBMback.vlayer.compute_output(V_pos_back, self.RBMback.weights)
+        I_pos_post = self.RBMpost.vlayer.compute_output(V_pos_post, self.RBMpost.weights)
+
+        if self.batch_norm:
+            if (self.n_cv > 1) & (self.n_ch == 1):
+                mu_I = np.tensordot(self.weights, self.mu_data, axes=[(1, 2), (0, 1)])
+            elif (self.n_cv > 1) & (self.n_ch > 1):
+                mu_I = np.tensordot(self.weights, self.mu_data, axes=[(1, 3), (0, 1)])
+            elif (self.n_cv == 1) & (self.n_ch > 1):
+                mu_I = np.tensordot(self.weights, self.mu_data, axes=[1, 0])
+            else:
+                mu_I = np.dot(self.weights, self.mu_data)
+
+            self.hlayer.batch_norm_update(
+                mu_I, I_pos, lr=0.25 * self.learning_rate / self.learning_rate_init, weights=weights)
+
+        H_pos = self.hlayer.mean_from_inputs(I_pos)
+
+        if (self.from_MoI & self.zero_track_RBM):
+            data_0v = np.swapaxes(self.weights_MoI[0], 0, 1)
+            weights_0v = self.zlayer.mu[0]
+            data_0h = None
+            weights_0h = None
+        elif self.from_MoI_h:
+            data_0v = None
+            weights_0v = None
+            data_0h = np.swapaxes(self.weights_MoI[0], 0, 1)
+            weights_0h = self.zlayer.mu[0]
+        else:
+            data_0v = None
+            data_0h = None
+            weights_0v = None
+            weights_0h = None
+
+        if self.from_MoI & self.zero_track_RBM:
+            Z = self.zlayer.mean_from_inputs(
+                None, I0=self.vlayer.compute_output(V_neg, self.weights_MoI), beta=0)
+            self.gradient['weights_MoI'] = utilities.average_product(
+                Z, V_neg, mean1=True, mean2=False, c1=self.zlayer.n_c, c2=self.vlayer.n_c) - self.muzx
+        elif self.from_MoI_h:
+            if self.zero_track_RBM:
+                Z = self.zlayer.mean_from_inputs(None, I0=self.hlayer.compute_output(
+                    self.fantasy_h[0], self.weights_MoI), beta=0)
+                self.gradient['weights_MoI'] = utilities.average_product(
+                    Z, self.fantasy_h[0], mean1=True, mean2=False, c1=self.zlayer.n_c, c2=self.hlayer.n_c) - self.muzx
+            else:
+                H_pos_sample = self.hlayer.sample_from_inputs(I_pos)
+                Z = self.zlayer.mean_from_inputs(None, I0=self.hlayer.compute_output(
+                    H_pos_sample, self.weights_MoI), beta=0)
+                self.gradient['weights_MoI'] = utilities.average_product(
+                    Z, H_pos_sample, mean1=True, mean2=False, c1=self.zlayer.n_c, c2=self.hlayer.n_c) - self.muzx
+
+        if self.from_hidden:
+            self.gradient['vlayer'] = self.vlayer.internal_gradients(self.moments_data, I_neg, data_0=data_0v,
+                                                                     weights=None, weights_neg=weights_neg, weights_0=weights_0v,
+                                                                     value='moments', value_neg='input', value_0='input')
+
+            self.gradient['hlayer'] = self.hlayer.internal_gradients(I_pos, H_neg, data_0=data_0h,
+                                                                     weights=weights, weights_neg=weights_neg, weights_0=weights_0h,
+                                                                     value='input', value_neg='data', value_0='input')
+
+            V_neg = self.vlayer.mean_from_inputs(I_neg)
+            self.gradient['weights'] = pgm.couplings_gradients_h(self.weights, H_pos, H_neg, V_pos, V_neg, self.n_ch, self.n_cv, l1=self.l1,
+                                                                 l1b=self.l1b, l1c=self.l1c, l2=self.l2, weights=weights, weights_neg=weights_neg, l1_custom=self.l1_custom, l1b_custom=self.l1b_custom)
+
+        else:
+            self.gradient['vlayer'] = self.vlayer.internal_gradients(self.moments_data, V_neg, data_0=data_0v,
+                                                                     weights=weights, weights_neg=weights_neg, weights_0=weights_0v,
+                                                                     value='moments', value_neg='data', value_0='input')
+
+            self.gradient['hlayer'] = self.hlayer.internal_gradients(I_pos, I_neg, data_0=data_0h,
+                                                                     weights=weights, weights_neg=weights_neg, weights_0=weights_0h,
+                                                                     value='input', value_neg='input', value_0='input')
+
+            H_neg = self.hlayer.mean_from_inputs(I_neg)
+            self.gradient['weights'] = pgm.couplings_gradients(self.weights, H_pos, H_neg, V_pos, V_neg, self.n_ch, self.n_cv, mean1=True, l1=self.l1,
+                                                               l1b=self.l1b, l1c=self.l1c, l2=self.l2, weights=weights, weights_neg=weights_neg, l1_custom=self.l1_custom, l1b_custom=self.l1b_custom)
+       
+        # this callback allows the user to modify gradients (via the RBM.gradients dictionary)
+        # before they are given to the optimizer
+        if modify_gradients_callback is not None:
+            modify_gradients_callback()
+
+        if self.interpolate & (self.N_PT > 2):
+            self.gradient['vlayer'] = self.vlayer.internal_gradients_interpolation(
+                self.fantasy_v, self.betas, gradient=self.gradient['vlayer'], value='data')
+            self.gradient['hlayer'] = self.hlayer.internal_gradients_interpolation(
+                self.fantasy_h, self.betas, gradient=self.gradient['hlayer'], value='data')
+        if self.interpolate_z & (self.N_PT > 2):
+            self.gradient['zlayer'] = self.zlayer.internal_gradients_interpolation(
+                self.fantasy_z, self.betas, value='data')
+
+        if check_nan(self.gradient, what='gradient', location='before batch norm'):
+            self.vproblem = V_pos
+            self.Iproblem = I_pos
+            return False
+
+        if self.batch_norm:  # Modify gradients.
+            self.hlayer.batch_norm_update_gradient(
+                self.gradient['weights'], self.gradient['hlayer'], V_pos, I_pos, self.mu_data, self.n_cv, weights=weights)
+
+        if check_nan(self.gradient, what='gradient', location='after batch norm'):
+            self.vproblem = V_pos
+            self.Iproblem = I_pos
+            return False
+
+        for key, item in self.gradient.items():
+            if type(item) == dict:
+                for key_, item_ in item.items():
+                    saturate(item_, 1.0)
+            else:
+                saturate(item, 1.0)
+
+        if self.tmp_l2_fields > 0:
+            self.gradient['vlayer']['fields'] -= self.tmp_l2_fields * \
+                self.vlayer.fields
+        if not self.tmp_reg_delta == 0:
+            self.gradient['hlayer']['delta'] -= self.tmp_reg_delta
+
+        for key, item in self.gradient.items():
+            if type(item) == dict:
+                for key_, item_ in item.items():
+                    current = getattr(getattr(self, key), key_)
+                    do_update = self.do_grad_updates[key][key_]
+                    lr_multiplier = self.learning_rate_multiplier[key][key_]
+                    has_momentum = self.has_momentum[key][key_]
+                    gradient = item_
+                    if do_update:
+                        if self.optimizer == 'SGD':
+                            current += self.learning_rate * lr_multiplier * gradient
+                        elif self.optimizer == 'momentum':
+                            self.previous_update[key][key_] = (
+                                1 - self.momentum) * self.learning_rate * lr_multiplier * gradient + self.momentum * self.previous_update[key][key_]
+                            current += self.previous_update[key][key_]
+                        elif self.optimizer == 'ADAM':
+                            if has_momentum:
+                                self.gradient_moment1[key][key_] *= self.beta1
+                                self.gradient_moment1[key][key_] += (
+                                    1 - self.beta1) * gradient
+                                self.gradient_moment2[key][key_] *= self.beta2
+                                self.gradient_moment2[key][key_] += (
+                                    1 - self.beta2) * gradient**2
+                                current += self.learning_rate * lr_multiplier / (1 - self.beta1) * (self.gradient_moment1[key][key_] / (
+                                    1 - self.beta1**self.count_updates)) / (self.epsilon + np.sqrt(self.gradient_moment2[key][key_] / (1 - self.beta2**self.count_updates)))
+                            else:
+                                self.gradient_moment2[key][key_] *= self.beta2
+                                self.gradient_moment2[key][key_] += (
+                                    1 - self.beta2) * gradient**2
+                                current += self.learning_rate * lr_multiplier * gradient / \
+                                    (self.epsilon + np.sqrt(self.gradient_moment2[key][key_] / (
+                                        1 - self.beta2**self.count_updates)))
+
+                            # self.gradient_moment1[key][key_] *= self.beta1
+                            # self.gradient_moment1[key][key_] += (1- self.beta1) * gradient
+                            # self.gradient_moment2[key][key_] *= self.beta2
+                            # self.gradient_moment2[key][key_] += (1- self.beta2) * gradient**2
+                            # current += self.learning_rate * (self.gradient_moment1[key][key_]/(1-self.beta1**self.count_updates)) /(self.epsilon + np.sqrt( self.gradient_moment2[key][key_]/(1-self.beta2**self.count_updates ) ) )
+            else:
+                current = getattr(self, key)
+                do_update = self.do_grad_updates[key]
+                lr_multiplier = self.learning_rate_multiplier[key]
+                has_momentum = self.has_momentum[key]
+                gradient = item
+                if do_update:
+                    if self.optimizer == 'SGD':
+                        current += self.learning_rate * lr_multiplier * gradient
+                    elif self.optimizer == 'momentum':
+                        self.previous_update[key] = (
+                            1 - self.momentum) * self.learning_rate * lr_multiplier * gradient + self.momentum * self.previous_update[key]
+                        current += self.previous_update[key]
+                    elif self.optimizer == 'ADAM':
+                        if has_momentum:
+                            self.gradient_moment1[key] *= self.beta1
+                            self.gradient_moment1[key] += (
+                                1 - self.beta1) * gradient
+                            self.gradient_moment2[key] *= self.beta2
+                            self.gradient_moment2[key] += (
+                                1 - self.beta2) * gradient**2
+                            current += self.learning_rate * lr_multiplier / (1 - self.beta1) * (self.gradient_moment1[key] / (
+                                1 - self.beta1**self.count_updates)) / (self.epsilon + np.sqrt(self.gradient_moment2[key] / (1 - self.beta2**self.count_updates)))
+                        else:
+                            self.gradient_moment2[key] *= self.beta2
+                            self.gradient_moment2[key] += (
+                                1 - self.beta2) * gradient**2
+                            current += self.learning_rate * lr_multiplier * gradient / \
+                                (self.epsilon + np.sqrt(self.gradient_moment2[key] / (
+                                    1 - self.beta2**self.count_updates)))
+
+                        # self.gradient_moment1[key] *= self.beta1
+                        # self.gradient_moment1[key] += (1- self.beta1) * gradient
+                        # self.gradient_moment2[key] *= self.beta2
+                        # self.gradient_moment2[key] += (1- self.beta2) * gradient**2
+                        # current += self.learning_rate * (self.gradient_moment1[key]/(1-self.beta1**self.count_updates)) /(self.epsilon + np.sqrt( self.gradient_moment2[key]/(1-self.beta2**self.count_updates ) ) )
+
+        if (self.n_cv > 1) | (self.n_ch > 1):
+            pgm.gauge_adjust_couplings(
+                self.weights, self.n_ch, self.n_cv, gauge=self.gauge)
+
+        self.hlayer.recompute_params()
+        self.vlayer.ensure_constraints()
+        self.hlayer.ensure_constraints()
+
+        if check_nan(self.hlayer.__dict__, what='hlayer', location='after recompute parameters'):
+            return False
+
+        if (self.from_MoI & self.zero_track_RBM) | self.from_MoI_h:
+            if self.from_MoI:
+                layer_id = 0
+                n_cx = self.vlayer.n_c
+                # fantasy_x = self.fantasy_v[0]
+            else:
+                layer_id = 1
+                n_cx = self.hlayer.n_c
+                # if self.zero_track_RBM:
+                # fantasy_x = self.fantasy_h[0]
+                # else:
+                # fantasy_x = H_pos_sample
+
+            if self.zero_track_RBM:
+                weights_Z = weights_neg
+            else:
+                weights_Z = weights
+
+            pgm.gauge_adjust_couplings(
+                self.weights_MoI, self.zlayer.n_c, n_cx, gauge=self.gauge)
+            # muz = utilities.average(Z,weights=weights_Z)
+            # if weights_Z is None:
+            #     likz =  np.dot(self.likelihood_mixture(fantasy_x),Z[:,0])/(muz[0] * fantasy_x.shape[0] )
+            # else:
+            #     likz =  np.dot(self.likelihood_mixture(fantasy_x) * weights_Z,Z[:,0])/(muz[0] * fantasy_x.shape[0] )
+
+            self.zlayer.mu = (1 - self.update_zlayer_mu_lr) * self.zlayer.mu + \
+                self.update_zlayer_mu_lr * \
+                utilities.average(Z, weights=weights_Z)
+            # self.zlayer.average_likelihood = 0. * self.zlayer.average_likelihood + 1 * likz
+            self.update_params_MoI(
+                layer_id=layer_id, eps=1e-4, verbose=verbose)
+
+        if self.N_PT > 1:
+            if self._update_betas:
+                self.update_betas()
+
+        return True
+
+        
+
+
 
 # constructs a diff RBM from parameters
 def construct_diff_rbm(n_v_post, n_h_post, n_v_back=None, n_h_back=None, n_cv=1, n_ch=1, visible='Bernoulli', hidden='Bernoulli'):
