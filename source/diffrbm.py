@@ -95,12 +95,18 @@ class DiffRBM:
         return RBMtop
             
     # fits top RBM from post data, with background RBM frozen
-    def fit_top(self, data_post, callback=None, **kwargs):
+    def fit_top(self, data_post, callback=None, modify_gradients_after_regularization_callback=None, reg_diff=True, **kwargs):
         def cb():
             self.update_post_from_back(vlayer=False, hlayer=True)
             if callback is not None:
                 callback()
-        self.RBMpost.fit(data_post, callback=cb, **kwargs)
+        def cb_reg():
+            if reg_diff: # regularize field difference
+                self.RBMpost.gradient['vlayer']['fields'][:self.n_v_] += self.tmp_l2_fields * self.RBMback.vlayer.fields
+            if modify_gradients_after_regularization_callback is not None:
+                modify_gradients_after_regularization_callback()
+
+        self.RBMpost.fit(data_post, callback=cb, modify_gradients_after_regularization_callback=cb_reg, **kwargs)
     
     # fits background RBM from back data (doesn't change top RBM)
     def fit_back(self, data_back, **kwargs):
