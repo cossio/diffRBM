@@ -102,7 +102,7 @@ class DiffRBM:
                 callback()
         def cb_reg():
             if reg_diff: # regularize field difference
-                self.RBMpost.gradient['vlayer']['fields'][:self.n_v_] += self.tmp_l2_fields * self.RBMback.vlayer.fields
+                self.RBMpost.gradient['vlayer']['fields'][:self.n_v_] += self.RBMpost.tmp_l2_fields * self.RBMback.vlayer.fields
             if modify_gradients_after_regularization_callback is not None:
                 modify_gradients_after_regularization_callback()
 
