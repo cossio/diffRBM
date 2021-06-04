@@ -95,19 +95,35 @@ class DiffRBM:
         return RBMtop
             
     # fits top RBM from post data, with background RBM frozen
-    def fit_top(self, data_post, callback=None, modify_regularization_callback=None, reg_diff=True, **kwargs):
+    def fit_top(self, data_post, callback=None, modify_gradients_callback=None, modify_regularization_callback=None, reg_diff=True,
+                zero_back_grad_on_post=False, **kwargs):
         def cb():
             self.update_post_from_back(vlayer=False, hlayer=True)
             if callback is not None:
                 callback()
+        def cb_grad():
+            if zero_back_grad_on_post:
+                self.zero_back_grad_on_post(vlayer=False, hlayer=True)
+            if modify_gradients_callback is not None:
+                modify_gradients_callback()
         def cb_reg():
             if reg_diff and self.RBMpost.tmp_l2_fields > 0: # regularize field difference
                 self.RBMpost.gradient['vlayer']['fields'][:self.n_v_] += self.RBMpost.tmp_l2_fields * self.RBMback.vlayer.fields
             if modify_regularization_callback is not None:
                 modify_regularization_callback()
 
-        self.RBMpost.fit(data_post, callback=cb, modify_regularization_callback=cb_reg, **kwargs)
+        self.RBMpost.fit(data_post, callback=cb, modify_regularization_callback=cb_reg, modify_gradients_callback=cb_grad, **kwargs)
     
+    # sets to zero the gradient of background parameters on postRBM
+    def zero_back_grad_on_post(self, vlayer=False, hlayer=True):
+        self.RBMpost.gradient['weights'][:self.n_h_]
+        if vlayer:
+            for key, g in self.RBMpost.gradient['vlayer'].items():
+                g[:self.n_v_] = 0
+        if hlayer:
+            for key, g in self.RBMpost.gradient['hlayer'].items():
+                g[:self.n_h_] = 0
+
     # fits background RBM from back data (doesn't change top RBM)
     def fit_back(self, data_back, **kwargs):
         self.RBMback.fit(data_back, **kwargs)
