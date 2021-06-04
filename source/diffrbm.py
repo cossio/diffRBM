@@ -53,6 +53,7 @@ class DiffRBM:
         if hlayer:
             for key in self.RBMback.hlayer.list_params:
                 self.RBMback.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key][:self.n_h_]
+            self.RBMback.hlayer.recompute_params(which='')
     
     # updates post RBM from back parameters
     def update_post_from_back(self, vlayer=False, hlayer=True):
@@ -63,6 +64,7 @@ class DiffRBM:
         if hlayer:
             for key in self.RBMpost.hlayer.list_params:
                 self.RBMpost.hlayer.__dict__[key][:self.n_h_] = self.RBMback.hlayer.__dict__[key]
+            self.RBMpost.hlayer.recompute_params(which='')
 
     # updates post RBM from top parameters in 'topRBM'
     def update_post_from_top(self, topRBM, vlayer=False, hlayer=True):
@@ -74,6 +76,7 @@ class DiffRBM:
         if hlayer:
             for key in self.RBMpost.hlayer.list_params:
                 self.RBMpost.hlayer.__dict__[key][self.n_h_:] = topRBM.hlayer.__dict__[key]
+            self.RBMpost.hlayer.recompute_params(which='')
     
     # updates topRBM with parmeters from 'top' part of the post-RBM
     def update_top_from_post(self, topRBM, vlayer=True, hlayer=True):
@@ -85,6 +88,7 @@ class DiffRBM:
         if hlayer:
             for key in self.RBMpost.hlayer.list_params:
                 topRBM.hlayer.__dict__[key][:] = self.RBMpost.hlayer.__dict__[key][self.n_h_:]
+            topRBM.hlayer.recompute_params(which='')
 
     # returns the top RBM
     def top_rbm(self):
