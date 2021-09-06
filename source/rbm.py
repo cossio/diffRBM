@@ -445,6 +445,7 @@ class RBM(pgm.PGM):
             N_PT_max=20, N_MC_max=20, from_hidden=None, learning_rate_multiplier=1,
             update_betas=None, record_acceptance=None, shuffle_data=True, epsilon=1e-6, verbose=1, vverbose=0, record=[], record_interval=100, data_test=None, weights_test=None, l1_custom=None, l1b_custom=None, M_AIS=10, n_betas_AIS=10000, decay_style='geometric',
             callback=None, # a function called after each minibatch fit
+            epoch_callback=None, # a function called after each epoch
             modify_gradients_callback=None, # called during each minibatch fit, but before regularization (weight decay), to allow modification of gradients
             modify_regularization_callback=None # called during each minibatch fit, after regularization (weight decay), to allow modification of gradients
             ):
@@ -998,6 +999,9 @@ class RBM(pgm.PGM):
                 else:
                     done = False
 
+            if epoch_callback is not None:
+                epoch_callback()
+            
             if done:
                 break
 
