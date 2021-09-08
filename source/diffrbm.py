@@ -156,18 +156,20 @@ class DiffRBM:
     # fits top and back RBMs simultaneously
     def fit_diff(self, data_post, data_back, weights_post=None, weights_back=None,
                  batch_size=100, n_iter=10, shuffle_data=True, modify_gradients_callback=None, **kwargs):
-            
-        n_samples_back = data_back.shape[0]
-        n_batches_back = int(np.ceil(float(n_samples_back) / batch_size))
-        back_batch_slices = list(gen_even_slices(n_batches_back * batch_size, n_batches_back, n_samples_back))
-        assert len(back_batch_slices) == n_batches_back
-        back_batch_slice_idx = 0
+        
+        assert self.RBMpost.n_v == self.RBMback.n_v # I don't know how to handle RBMpost.n_v > RBMback.n_v
 
         alpha_back = data_back.shape[0] / (data_back.shape[0] + data_post.shape[0])
         alpha_post = data_post.shape[0] / (data_back.shape[0] + data_post.shape[0])
 
         data_post = np.asarray(data_post, dtype=self.RBMpost.vlayer.type, order="c")
         data_back = np.asarray(data_back, dtype=self.RBMback.vlayer.type, order="c")
+
+        n_samples_back = data_back.shape[0]
+        n_batches_back = int(np.ceil(float(n_samples_back) / batch_size))
+        back_batch_slices = list(gen_even_slices(n_batches_back * batch_size, n_batches_back, n_samples_back))
+        assert len(back_batch_slices) == n_batches_back
+        back_batch_slice_idx = 0
 
         # initialize fit (n_iter = 0 does nothing)
         self.RBMpost.fit(data_post, weights=weights_post, shuffle_data=False, batch_size=batch_size, n_iter=0, **kwargs)
@@ -198,6 +200,9 @@ class DiffRBM:
             
             self.RBMpost.gradient['weights'] *= alpha_post
             self.RBMpost.gradient['weights'][:self.n_h_] += alpha_back * back_gradient['weights']
+            for key in self.RBMpost.gradient['hlayer']:
+                self.RBMpost.gradient['hlayer'][key] *= alpha_post
+                self.RBMpost.gradient['hlayer'][key][:self.n_h_] += alpha_back * back_gradient['hlayer'][key]
 
             back_batch_slice_idx = (back_batch_slice_idx + 1) % n_batches_back
 
