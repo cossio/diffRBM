@@ -464,3 +464,12 @@ def get_indices_swaps(N_PT, count):
 #
 # def get_indices_swaps(N_PT, count):
 #     return range(count % 2, N_PT - 1, 2)
+
+
+def rand_shuffle_data(data, weights=None):
+    permute = np.arange(data.shape[0])
+    data = data[permute]
+    if weights is not None:
+        weights = weights[permute]
+    return data, weights
+            
