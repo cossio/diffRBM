@@ -154,8 +154,8 @@ class DiffRBM:
         self.update_post_from_top(topRBM, vlayer=True, hlayer=True)
 
     # fits top and back RBMs simultaneously
-    def fit_diff(self, data_post, data_back, weights_post=None, weights_back=None,
-                 batch_size=100, n_iter=10, shuffle_data=True, modify_gradients_callback=None, **kwargs):
+    def fit_diff(self, data_post, data_back, weights_post=None, weights_back=None, l2_fields_back=0, l2_fields_top=0,
+                 reg_diff=True, batch_size=100, n_iter=10, shuffle_data=True, modify_gradients_callback=None, **kwargs):
         
         assert self.RBMpost.n_v == self.RBMback.n_v # I don't know how to handle RBMpost.n_v > RBMback.n_v
 
@@ -172,8 +172,8 @@ class DiffRBM:
         back_batch_slice_idx = 0
 
         # initialize fit (n_iter = 0 does nothing)
-        self.RBMpost.fit(data_post, weights=weights_post, shuffle_data=False, batch_size=batch_size, n_iter=0, **kwargs)
-        self.RBMback.fit(data_back, weights=weights_back, shuffle_data=False, batch_size=batch_size, n_iter=0, **kwargs)
+        self.RBMpost.fit(data_post, weights=weights_post, shuffle_data=False, batch_size=batch_size, n_iter=0, l2_fields=l2_fields_back, **kwargs)
+        self.RBMback.fit(data_back, weights=weights_back, shuffle_data=False, batch_size=batch_size, n_iter=0, l2_fields=l2_fields_top, **kwargs)
 
         # in RBMback we only update the visible layer
         self.RBMback.do_grad_updates['weights'] = False
@@ -196,20 +196,18 @@ class DiffRBM:
             else:
                 no_nans = self.RBMback.minibatch_fit(data_back[back_batch_slice], weights=weights_back[back_batch_slice])
             
-            back_gradient = copy.deepcopy(self.RBMback.gradient)
-            
             self.RBMpost.gradient['weights'] *= alpha_post
-            self.RBMpost.gradient['weights'][:self.n_h_] += alpha_back * back_gradient['weights']
+            self.RBMpost.gradient['weights'][:self.n_h_] += alpha_back * self.RBMback.gradient['weights']
             for key in self.RBMpost.gradient['hlayer']:
                 self.RBMpost.gradient['hlayer'][key] *= alpha_post
-                self.RBMpost.gradient['hlayer'][key][:self.n_h_] += alpha_back * back_gradient['hlayer'][key]
-
+                self.RBMpost.gradient['hlayer'][key][:self.n_h_] += alpha_back * self.RBMback.gradient['hlayer'][key]
+            
+            if reg_diff and self.RBMpost.tmp_l2_fields > 0: # regularize field differences
+                self.RBMpost.gradient['vlayer']['fields'][:self.n_v_] += self.RBMpost.tmp_l2_fields * self.RBMback.vlayer.fields
+            
             back_batch_slice_idx = (back_batch_slice_idx + 1) % n_batches_back
 
-            if modify_gradients_callback is not None:
-                modify_gradients_callback()
-
-        self.RBMpost.fit(data_post, weights=weights_post, shuffle_data=False, batch_size=batch_size, n_iter=n_iter, 
+        self.RBMpost.fit(data_post, weights=weights_post, shuffle_data=False, batch_size=batch_size, n_iter=n_iter, l2_fields=l2_fields_top,
                          modify_gradients_callback=_modify_gradients_callback, **kwargs)
         
 
