@@ -154,13 +154,13 @@ class DiffRBM:
         self.update_post_from_top(topRBM, vlayer=True, hlayer=True)
 
     # fits top and back RBMs simultaneously
-    def fit_diff(self, data_post, data_back, weights_post=None, weights_back=None, l2_fields_back=0, l2_fields_top=0,
+    def fit_diff(self, data_post, data_back, weights_post=None, weights_back=None, l2_fields_back=0, l2_fields_top=0, omega_post=1, omega_back=1,
                  reg_diff=True, batch_size=100, n_iter=10, shuffle_data=True, modify_gradients_callback=None, **kwargs):
         
         assert self.RBMpost.n_v == self.RBMback.n_v # I don't know how to handle RBMpost.n_v > RBMback.n_v
 
-        alpha_back = data_back.shape[0] / (data_back.shape[0] + data_post.shape[0])
-        alpha_post = data_post.shape[0] / (data_back.shape[0] + data_post.shape[0])
+        alpha_back = data_back.shape[0] / (data_back.shape[0] + data_post.shape[0]) * omega_post
+        alpha_post = data_post.shape[0] / (data_back.shape[0] + data_post.shape[0]) * omega_back
 
         data_post = np.asarray(data_post, dtype=self.RBMpost.vlayer.type, order="c")
         data_back = np.asarray(data_back, dtype=self.RBMback.vlayer.type, order="c")
