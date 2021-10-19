@@ -103,9 +103,9 @@ class DiffRBM:
         return RBMtop
     
     # alpha_post * Lpost + alpha_back * Lback
-    def likelihood(self, data_post, data_back, omega_post=1, omega_back=1):
-        Lback = self.RBMback.likelihood(data_back)
-        Lpost = self.RBMpost.likelihood(data_post)
+    def likelihood(self, data_post, data_back, omega_post=1, omega_back=1, recompute_Z=False):
+        Lback = self.RBMback.likelihood(data_back, recompute_Z = recompute_Z)
+        Lpost = self.RBMpost.likelihood(data_post, recompute_Z = recompute_Z)
         alpha_back = data_back.shape[0] / (data_back.shape[0] + data_post.shape[0]) * omega_post
         alpha_post = data_post.shape[0] / (data_back.shape[0] + data_post.shape[0]) * omega_back
         return alpha_post * Lpost.mean() + alpha_back * Lback.mean()
