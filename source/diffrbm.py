@@ -101,6 +101,23 @@ class DiffRBM:
                          visible=self.RBMpost.visible, hidden=self.RBMpost.hidden)
         self.update_top_from_post(RBMtop, vlayer=True, hlayer=True)
         return RBMtop
+    
+    # alpha_post * Lpost + alpha_back * Lback
+    def likelihood(self, data_post, data_back, omega_post=1, omega_back=1):
+        Lback = self.RBMback.likelihood(data_back)
+        Lpost = self.RBMpost.likelihood(data_post)
+        alpha_back = data_back.shape[0] / (data_back.shape[0] + data_post.shape[0]) * omega_post
+        alpha_post = data_post.shape[0] / (data_back.shape[0] + data_post.shape[0]) * omega_back
+        return alpha_post * Lpost.mean() + alpha_back * Lback.mean()
+    
+    # alpha_post * Lpost + alpha_back * Lback
+    # pseudo-likelihood approximation
+    def pseudo_likelihood(self, data_post, data_back, omega_post=1, omega_back=1):
+        Lback = self.RBMback.pseudo_likelihood(data_back)
+        Lpost = self.RBMpost.pseudo_likelihood(data_post)
+        alpha_back = data_back.shape[0] / (data_back.shape[0] + data_post.shape[0]) * omega_post
+        alpha_post = data_post.shape[0] / (data_back.shape[0] + data_post.shape[0]) * omega_back
+        return alpha_post * Lpost.mean() + alpha_back * Lback.mean()
             
     # fits top RBM from post data, with background RBM frozen
     def fit_top(self, data_post, callback=None, modify_gradients_callback=None, modify_regularization_callback=None, reg_diff=True,
