@@ -224,8 +224,8 @@ class DiffRBM:
             
             back_batch_slice_idx = (back_batch_slice_idx + 1) % n_batches_back
 
-        self.RBMpost.fit(data_post, weights=weights_post, shuffle_data=False, batch_size=batch_size, n_iter=n_iter, l2_fields=l2_fields_top,
-                         modify_gradients_callback=_modify_gradients_callback, **kwargs)
+        return self.RBMpost.fit(data_post, weights=weights_post, shuffle_data=False, batch_size=batch_size, n_iter=n_iter, l2_fields=l2_fields_top,
+                                modify_gradients_callback=_modify_gradients_callback, **kwargs)
         
 
 # constructs a diff RBM from parameters
