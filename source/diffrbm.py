@@ -120,24 +120,27 @@ class DiffRBM:
         return alpha_post * Lpost.mean() + alpha_back * Lback.mean()
             
     # fits top RBM from post data, with background RBM frozen
-    def fit_top(self, data_post, callback=None, modify_gradients_callback=None, modify_regularization_callback=None, reg_diff=True,
-                zero_back_grad_on_post=False, **kwargs):
-        def cb():
+    def fit_top(self, data_post, l2_fields_top = 0, zero_back_grad_on_post=False,
+                callback=None, modify_gradients_callback=None, modify_regularization_callback=None, 
+                **kwargs):
+        def _callback():
             self.update_post_from_back(vlayer=False, hlayer=True)
             if callback is not None:
                 callback()
-        def cb_grad():
+        def _modify_gradients_callback():
             if zero_back_grad_on_post:
                 self.zero_back_grad_on_post(vlayer=False, hlayer=True)
             if modify_gradients_callback is not None:
                 modify_gradients_callback()
-        def cb_reg():
-            if reg_diff and self.RBMpost.tmp_l2_fields > 0: # regularize field difference
-                self.RBMpost.gradient['vlayer']['fields'][:self.n_v_] += self.RBMpost.tmp_l2_fields * self.RBMback.vlayer.fields
+        def _modify_regularization_callback():
+            self.RBMpost.gradient['vlayer']['fields'][:self.n_v_] -= l2_fields_top * (self.RBMpost.vlayer.fields[:self.n_v_] - self.RBMback.vlayer.fields)
             if modify_regularization_callback is not None:
                 modify_regularization_callback()
 
-        self.RBMpost.fit(data_post, callback=cb, modify_regularization_callback=cb_reg, modify_gradients_callback=cb_grad, **kwargs)
+        self.RBMpost.fit(data_post, callback=_callback,
+                         modify_regularization_callback=_modify_regularization_callback,
+                         modify_gradients_callback=_modify_gradients_callback, 
+                         **kwargs)
     
     # sets to zero the gradient of background parameters on postRBM
     def zero_back_grad_on_post(self, vlayer=False, hlayer=True):
