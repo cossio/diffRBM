@@ -201,7 +201,7 @@ class DiffRBM:
 
         # initialize fit (n_iter = 0 does nothing)
         self.RBMpost.fit(data_post, weights=weights_post, shuffle_data=False, batch_size=batch_size, n_iter=0, l2_fields=l2_fields_post, l1b=l1b_top, **kwargs)
-        self.RBMback.fit(data_back, weights=weights_back, shuffle_data=False, batch_size=batch_size, n_iter=0, l2_fields=l2_fields_back, **kwargs)
+        self.RBMback.fit(data_back, weights=weights_back, shuffle_data=False, batch_size=batch_size, n_iter=0, l2_fields=l2_fields_back, l1b=l1b_back, **kwargs)
 
         # in RBMback we only update the visible layer
         self.RBMback.do_grad_updates['weights'] = False
