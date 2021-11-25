@@ -496,7 +496,7 @@ class RBM(pgm.PGM):
 
         self.no_fields = no_fields
 
-        data = np.asarray(data, dtype=self.vlayer.type, order="c")
+        data = np.asarray(copy.deepcopy(data), dtype=self.vlayer.type, order="c")
         if weights is not None:
             weights = np.asarray(weights, dtype=curr_float)
         if self.batch_norm:
