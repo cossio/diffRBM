@@ -240,7 +240,7 @@ class DiffRBM:
 
             back_batch_slice_idx = (back_batch_slice_idx + 1) % n_batches_back
 
-        return self.RBMpost.fit(data_post, weights=weights_post, shuffle_data=False, batch_size=batch_size, n_iter=n_iter, l2_fields=0,
+        return self.RBMpost.fit(data_post, weights=weights_post, shuffle_data=shuffle_data, batch_size=batch_size, n_iter=n_iter, l2_fields=l2_fields_post,
                                 modify_regularization_callback=_post_grad_cb, **kwargs)
         
 
