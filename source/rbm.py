@@ -447,7 +447,8 @@ class RBM(pgm.PGM):
             callback=None, # a function called after each minibatch fit
             epoch_callback=None, # a function called after each epoch
             modify_gradients_callback=None, # called during each minibatch fit, but before regularization (weight decay), to allow modification of gradients
-            modify_regularization_callback=None # called during each minibatch fit, after regularization (weight decay), to allow modification of gradients
+            modify_regularization_callback=None, # called during each minibatch fit, after regularization (weight decay), to allow modification of gradients
+            gradmaxclip = 1.0 # grad clipping max
             ):
 
         self.batch_size = batch_size
@@ -844,12 +845,14 @@ class RBM(pgm.PGM):
                     no_nans = self.minibatch_fit(
                         data[batch_slice], weights=None, verbose=vverbose,
                         modify_gradients_callback=modify_gradients_callback, 
-                        modify_regularization_callback=modify_regularization_callback)
+                        modify_regularization_callback=modify_regularization_callback,
+                        gradmaxclip=gradmaxclip)
                 else:
                     no_nans = self.minibatch_fit(
                         data[batch_slice], weights=weights[batch_slice], verbose=vverbose, 
                         modify_gradients_callback=modify_gradients_callback,
-                        modify_regularization_callback=modify_regularization_callback)
+                        modify_regularization_callback=modify_regularization_callback,
+                        gradmaxclip=gradmaxclip)
                 
                 if callback is not None:
                     callback()
@@ -1041,7 +1044,7 @@ class RBM(pgm.PGM):
                 result[key] = np.array(item)
         return result
 
-    def minibatch_fit(self, V_pos, weights=None, verbose=True, modify_gradients_callback=None, modify_regularization_callback=None):
+    def minibatch_fit(self, V_pos, weights=None, verbose=True, modify_gradients_callback=None, modify_regularization_callback=None, gradmaxclip = 1.0):
         self.count_updates += 1
         if self.CD:  # Contrastive divergence: initialize the Markov chain at the data point.
             self.fantasy_v[:V_pos.shape[0]] = V_pos # Copy the value, not the pointer. DO NOT USE self.fantasy_v = V_pos
@@ -1222,9 +1225,9 @@ class RBM(pgm.PGM):
         for key, item in self.gradient.items():
             if type(item) == dict:
                 for key_, item_ in item.items():
-                    saturate(item_, 1.0)
+                    saturate(item_, gradmaxclip)
             else:
-                saturate(item, 1.0)
+                saturate(item, gradmaxclip)
 
         if self.tmp_l2_fields > 0:
             self.gradient['vlayer']['fields'] -= self.tmp_l2_fields * \
