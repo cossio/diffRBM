@@ -473,3 +473,34 @@ def rand_shuffle_data(data, weights=None):
         weights = weights[permute]
     return data, weights
             
+def compute_profile_aligned(seqs_2num, n_cv, gap_encoding = None):
+    """
+    Given the set of sequences `s2n` (numpy ndarray), returns a position weight matrix (profile).
+    The last entry of the profile is the "gap extend" score. `n_cv` is the number of possible states
+    of each position in the sequences. The value of the gap is by default assumed to be equal to `n_v-1`,
+    it this is not the case `gap_encoding` can be used.
+    """
+    #checks
+    assert type(seqs_2num) == np.ndarray, "Sequences must be provided as a numpy ndarray."
+    if gap_encoding is None:
+        gap_encoding = n_cv-1
+    
+    # compute profile
+    profile = np.full((seqs_2num.shape[1], n_cv+1), 0, dtype=np.float64)
+    for i in range(profile.shape[0]):
+        nums_pseudo = np.full(n_cv + 1, 1)
+        vals, obs = np.unique(seqs_2num[:, i], return_counts=True)
+        nums = np.copy(nums_pseudo)
+        for v,n in zip(vals, obs):
+            nums[v] += n
+        tot = np.sum(nums)
+        nums = nums / tot
+        if i != 0:
+            pre_gap_pos = seqs_2num[seqs_2num[:, i] == gap_encoding, i-1]
+            num_gapextend_pseudo = np.sum(pre_gap_pos == gap_encoding) + 1
+            num_gapopen_pseudo = np.sum(pre_gap_pos != gap_encoding) + 1
+            num_gaps = nums[gap_encoding]
+            nums[gap_encoding] = num_gaps * num_gapopen_pseudo / (num_gapextend_pseudo+num_gapopen_pseudo)
+            nums[-1] = num_gaps * num_gapextend_pseudo / (num_gapextend_pseudo+num_gapopen_pseudo)
+        profile[i,:] = np.log(nums)
+    return profile

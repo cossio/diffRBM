@@ -19,7 +19,7 @@ import layer
 import pgm
 import moi
 import utilities
-from utilities import check_random_state, gen_even_slices, logsumexp, log_logistic, average, average_product, saturate, check_nan, get_permutation
+from utilities import check_random_state, gen_even_slices, logsumexp, log_logistic, average, average_product, saturate, check_nan, get_permutation, compute_profile_aligned
 import time
 import copy
 
@@ -30,7 +30,8 @@ from float_precision import double_precision, curr_float, curr_int
 
 
 class RBM(pgm.PGM):
-    def __init__(self, n_v=100, n_h=20, visible='Bernoulli', hidden='Bernoulli', interpolate=False, degree_interpolate=5, n_cv=1, n_ch=1, random_state=None, gauge='zerosum', zero_field=False):
+    def __init__(self, n_v=100, n_h=20, visible='Bernoulli', hidden='Bernoulli', interpolate=False, degree_interpolate=5, n_cv=1, n_ch=1, 
+                 random_state=None, gauge='zerosum', zero_field=False, profile=None):
         self.n_v = n_v
         self.n_h = n_h
         self.n_visibles = n_v
@@ -73,6 +74,9 @@ class RBM(pgm.PGM):
         self._Ihz = None
         self._Izh = None
 
+        # profile to align to visible units
+        self.visible_profile = profile 
+
     def init_weights(self, amplitude):
         if (self.n_ch > 1) & (self.n_cv > 1):
             self.weights = amplitude * \
@@ -94,6 +98,124 @@ class RBM(pgm.PGM):
             self.weights = amplitude * \
                 self.random_state.randn(self.n_h, self.n_v)
         self.weights = np.asarray(self.weights, dtype=curr_float)
+
+    def auto_update_profile(self, N_seqs=1000, N_steps=100, N_chains=100, Nthermalize=500,
+                            gap_encoding=None):
+        """Generate data at T=1 and use these data to compute a new profile. The last entry
+        for each position in the profile is the 'gap extend' score.
+        The parameter `N_seqs`, `N_steps`, `Nthermalize` and `N_chains` can be used to 
+        tune the step where sequences are generated, see function `gen_data`, 
+        and so the reliability of the inferred profile parameters.
+        `gap_encoding` can be used to specify the integer that encodes the gap symbol."""
+        gen_Vseqs, _ = self.gen_data(Nchains = 100, Lchains = N_seqs//100, Nstep=N_steps,
+                                N_PT=1, update_betas=False, Nthermalize=500)
+        self.profile = compute_profile_aligned(gen_Vseqs, self.n_cv, gap_encoding)
+        return
+
+    def update_profile_from_data(self, data, gap_encoding=None):
+        """`gap_encoding` can be used to specify the integer that encodes the gap symbol."""
+        self.profile = compute_profile_aligned(data, self.n_cv, gap_encoding)
+        return
+
+    def align_to_profile(self, seq, gap_insert_open=-10, gap_insert_extend=-5,
+                         gap_open_pos = -2, gap_extend_pos = -1):
+        """
+        `seq` is the sequence to be aligned to the RBM profile.  
+        IMPORTANT: by default, the second-to-last entry is assumed to be the gap-open score, 
+        and the last entry the gap-extend score. If this is not the case, the parameters 
+        `gap_open_pos` and `gap_extend_pos` must be used to specify where, in the profile, the
+        scores for opening gaps and extending gaps are given.
+        """
+        assert (type(seq) == np.ndarray) or (type(seq) == list)
+        #assert (seq[0] == int) or (seq[0] == np.int32) or (seq[0] == np.int16) or (seq[0] == np.int64)
+        prof = self.profile
+        
+        lx = seq.shape[0]
+        ly = prof.shape[0]
+    
+        if gap_open_pos >= 0:
+            gap_encode_symbol = gap_open_pos
+        else:
+            gap_encode_symbol = (prof.shape[1] - 1) + gap_extend_pos 
+        
+        # score matrix
+        S = np.full((ly+1, lx+1), 0.)
+        S[0, 1] = gap_insert_open
+        S[0, 2:] = gap_insert_open + gap_insert_extend * np.arange(1, lx)
+        S[1, 0] = prof[0][gap_open_pos]
+        for y in range(2, ly+1):
+            S[y, 0] = S[y-1, 0] + prof[y-1][gap_extend_pos]
+        
+        # traceback dict
+        D = dict()
+        for x in range(1, lx+1):
+            D[(0, x)] = [(0, x-1)]
+        for y in range(1, ly+1):
+            D[(y, 0)] = [(y-1, 0)]
+        
+        # fill score matrix and traceback dict
+        for y in range(1, ly+1):
+            for x in range(1, lx+1):
+                v_match_state = S[y-1, x-1] + prof[y-1][seq[x-1]]
+        
+                cond_Gx = ((y-2, x) in D[(y-1, x)]) # previous was gap
+                v_delx =  (S[y-1, x] + prof[y-1][gap_extend_pos]) if cond_Gx else (S[y-1, x] + prof[y-1][gap_open_pos])
+                
+                cond_Gy = ((y, x-2) in D[(y, x-1)]) # previous was gap
+                v_dely = (S[y, x-1] + gap_insert_extend) if cond_Gy else (S[y, x-1] + gap_insert_open)
+        
+                S[y, x] = max(v_match_state, v_delx, v_dely)
+                t_prevs = []
+                if v_match_state == S[y, x]:
+                    t_prevs.append((y-1, x-1))
+                if v_delx == S[y, x]:
+                    t_prevs.append((y-1, x))
+                if v_dely == S[y, x]:
+                    t_prevs.append((y, x-1))
+                D[(y, x)] = t_prevs
+                
+        # build aligned sequence
+        ali_sx_rev = []
+        t_pos = (ly, lx)
+        while t_pos != (0,0):
+            next_pos = D[t_pos][0]
+            if (t_pos[0]-next_pos[0] == 1) and (t_pos[1]-next_pos[1] == 1):
+                ali_sx_rev.append(seq[t_pos[1]-1])
+                
+            elif (t_pos[0]-next_pos[0] == 1) and (t_pos[1]-next_pos[1] == 0):
+                ali_sx_rev.append(gap_encode_symbol)
+                cost = S[t_pos] - S[next_pos]
+                if np.isclose(cost, prof[t_pos[0]-1][gap_extend_pos]) and (prof[t_pos[0]-1][gap_extend_pos] > prof[t_pos[0]-1][gap_open_pos]):
+                    # keep adding gaps until the full cost is paid
+                    #print(t_pos, "->", next_pos)
+                    t_pos = next_pos
+                    while np.isclose(cost, prof[t_pos[0]-1][gap_extend_pos]):
+                        next_pos = (t_pos[0]-1, t_pos[1])
+                        assert (next_pos in D[t_pos]), "Internal error - something is wrong with the algorithm!"
+                        cost = S[t_pos] - S[next_pos]
+                        ali_sx_rev.append(gap_encode_symbol)
+                        #print(t_pos, "->", next_pos)
+                        t_pos = next_pos
+                    
+            elif (t_pos[0]-next_pos[0] == 0) and (t_pos[1]-next_pos[1] == 1):
+                #ali_sx_rev += seq[t_pos[1]-1].lower()
+                cost = S[t_pos] - S[next_pos]
+                if np.isclose(cost, gap_insert_extend) and (gap_insert_extend > gap_insert_open):
+                    # keep skipping insertions until the full cost is paid
+                    #print(t_pos, "->", next_pos)
+                    t_pos = next_pos
+                    while np.isclose(cost, gap_insert_extend):
+                        next_pos = (t_pos[0], t_pos[1]-1)
+                        assert (next_pos in D[t_pos]), "Internal error - something is wrong with the algorithm!"
+                        cost = S[t_pos] - S[next_pos]
+                        #ali_sx_rev += seq[t_pos[1]-1].lower()
+                        #print(t_pos, "->", next_pos)
+                        t_pos = next_pos
+                
+            #print(t_pos, "->", next_pos)
+            t_pos = next_pos
+        ali_sx = np.array(ali_sx_rev[::-1]).astype(np.int16)
+        return ali_sx
 
     def markov_step(self, x, beta=1, recompute=True):
         (v, h) = x
