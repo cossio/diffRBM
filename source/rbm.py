@@ -107,8 +107,8 @@ class RBM(pgm.PGM):
         tune the step where sequences are generated, see function `gen_data`, 
         and so the reliability of the inferred profile parameters.
         `gap_encoding` can be used to specify the integer that encodes the gap symbol."""
-        gen_Vseqs, _ = self.gen_data(Nchains = 100, Lchains = N_seqs//100, Nstep=N_steps,
-                                N_PT=1, update_betas=False, Nthermalize=500)
+        gen_Vseqs, _ = self.gen_data(Nchains = N_chains, Lchains = N_seqs//N_chains, Nstep=N_steps,
+                                N_PT=1, update_betas=False, Nthermalize=Nthermalize)
         self.profile = compute_profile_aligned(gen_Vseqs, self.n_cv, gap_encoding)
         return
 
