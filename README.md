@@ -2,7 +2,7 @@
 
 Python module to train a Differential RBM (DiffRBM), as described in the paper
 
-> Learning the differences: a machine learning approach to predicting antigen immunogenicity and T-cell receptor specificity
+> Bravi, Barbara, et al. "Learning the differences: a transfer-learning approach to predict antigen immunogenicity and T-cell receptor specificity." bioRxiv (2022): 2022-12.
 
 Usage of this repo or modifications derived from it should cite the above publication.
 
@@ -40,3 +40,18 @@ See the example notebooks in https://github.com/bravib/diffRBM_immunogenicity_TC
 # Requirements
 
 Python (tested with v3.9), Numpy (tested with v1.23), Numba (tested with v0.56). See also the Requirements section in https://github.com/jertubiana/PGM.
+
+# Citation
+
+If you use this code, please cite:
+
+```
+@article{bravi2022learning,
+  title={Learning the differences: a transfer-learning approach to predict antigen immunogenicity and T-cell receptor specificity},
+  author={Bravi, Barbara and Di Gioacchino, Andrea and Fernandez-de-Cossio-Diaz, Jorge and Walczak, Aleksandra M and Mora, Thierry and Cocco, Simona and Monasson, R{\'e}mi},
+  journal={bioRxiv},
+  pages={2022--12},
+  year={2022},
+  publisher={Cold Spring Harbor Laboratory}
+}
+```
